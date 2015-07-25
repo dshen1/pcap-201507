@@ -1,7 +1,7 @@
 ---
-title: "End-to-end reproducible analytics with R"
+title: "Dynamic reporting and visualization for data science"
 author: "Kevin Kuo"
-date: "June 29, 2015"
+date: "July 25, 2015"
 output:
   ioslides_presentation:
     smaller: true
@@ -11,50 +11,30 @@ output:
 library(magrittr)
 ```
 
-## The analytics process
+## Data visualization - why it matters
 
-Looks something like:
+- Quicker exploration of data
+    + Charts and plots are often easier to digest than a bunch of numbers
 
-```{R, echo = FALSE}
-library(DiagrammeR)
-DiagrammeR("
-    graph LR;
-      Strategy --> Data;
-      Data --> Model;
-      Model --> Action;
-")
-```
+> - Better exploration of data
+    + Humans are not so good at detecting patterns from numbers
+    
+> - Powerful messaging
+    + People trust you more if you have fancy graphics to point to
 
-## The analytics process
+## Reproducibility - why it matters
 
-<!---
-This slide may not render correctly on the first try.
-Refreshing browser seems to fix the issue.
--->
+- How did you get this number? It looks way off.
+    + We `Ctrl-C` from this other workbook which had 20 linked formula dependencies then `Alt-E,S,V` here, but someone modified the source file so now we have no idea what's going on.
 
-Often, it's closer to:
+> - The client just gave us an updated dataset, we need to update the report for the meeting tomorrow.
+    + Looks like we're not sleeping tonight, we gotta re-run the SAS scripts, copy the results into Excel, format, make some charts, then copy those into Word and PowerPoint for the presentation :(
 
-```{R, echo = FALSE}
-DiagrammeR("
-    graph LR;
-      Strategy --> Data;
-      Data --> Strategy;
-      Data --> Model;
-      Model --> Strategy;
-      Model --> Action;
-      Action --> Strategy;
-      Action --> Model
-")
-```
+## This talk
 
-## Takeaways
+* All examples are done in R
 
-- Reproducible analytics is really important to help us keep things straight.
-
-> - All of the code used to generate this slide deck is available at https://github.com/kykuo/rii2015
-
-
-> - You can draw flow diagrams with R!
+* All code, including that to generate this deck, is available on [GitHub](https://github.com/kykuo/pcap-201507)
 
 # Case Study 1: Tornado data exploration
 
@@ -68,26 +48,22 @@ list.files("download/")
 
 ## Tornado data exploration {.smaller}
 
-```{R, include = FALSE}
-library(readr)
-```
-
 ```{R, message = FALSE, warning = FALSE}
+library(readr)
+library(magrittr)
 "download/stormdata_2010.csv" %>%
   read_csv %>%
   names
 ```
 
-## Tornado data exploration
-
-```{R, include = FALSE}
-source("R/tornado.R")
-```
+## Tornado data exploration {.smaller}
 
 ```{R, message = FALSE, warning = FALSE}
+source("R/tornado.R") # some data munging code
+library(DT)
 stormData %>%
   filter(type == "Tornado") %>%
-  head
+  datatable(filter="top", rownames=FALSE, options=list(pageLength=5, dom='tp'))
 ```
 
 ## Tornado data exploration
@@ -96,48 +72,74 @@ stormData %>%
 
 ```{R, echo = FALSE}
 dygraph(stormTS) %>%
- dyOptions(stackedGraph = TRUE)
+  dyOptions(stackedGraph = TRUE) %>%
+  dyRangeSelector()
 ```
 
-## Tornado data exploration
+## Tornado data exploration {.smaller}
 
-```{R}
+* Let's focus on the outbreak period and look at stats by state:
+
+```{R, message = FALSE, warning = FALSE}
 stormData %>%
   filter(type == "Tornado",
          date >= ymd("2011-4-25"), date <= ymd("2011-4-28")) %>%
   group_by(state) %>%
   summarize(count = n(),
             deaths = sum(deaths)) %>%
-  arrange(desc(count)) %>%
-  head
+  datatable(rownames = FALSE, options = list(pageLength=5, dom='tp'))
 ```
 
 ## Tornado data exploration
 
-- Here is a map of the tornados during the outbreak:
+- Here is a map of the tornados during the four years:
 
 ```{R, echo = FALSE}
 library(leaflet)
-tornadoMapData %>%
+counties %>%
   leaflet() %>%
   addTiles() %>%
-  addCircleMarkers(lng = ~ long, lat = ~ lat, radius = ~ deaths,
-                   fillOpacity = 0.2, color = "red", stroke = FALSE, popup = deathsPopup)
+  addPolygons(stroke = FALSE, smoothFactor = 0.2, 
+              fillOpacity = 0.8, fillColor = ~ pal(count),
+              popup = countyPopup) %>%
+  addCircleMarkers(data = outbreakOccurences, 
+                   lng = ~ long, lat = ~ lat, 
+                   radius = ~ sqrt(10*deaths),
+                   fillOpacity = 0.2, color = "blue", 
+                   stroke = FALSE, popup = deathPopup)
 ```
+
+## Tornado data exploration
+
+- Excerpt of the code for the map on the previous page:
+
+```{R, eval = FALSE}
+library(leaflet)
+counties %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolygons(stroke = FALSE, smoothFactor = 0.2, 
+              fillOpacity = 0.8, fillColor = ~ pal(count),
+              popup = countyPopup) %>%
+  addCircleMarkers(data = outbreakOccurences, 
+                   lng = ~ long, lat = ~ lat, 
+                   radius = ~ sqrt(10*deaths),
+                   fillOpacity = 0.2, color = "blue", 
+                   stroke = FALSE, popup = deathPopup)
+```
+
+> - Since it's just text, put it under source control!
 
 # Case study 2: Insurer-Reinsurer relationships
 
 ## Insurer-Reinsurer relationships {.smaller}
 
-- We'll work with ~~fake~~ illustrative data:
-
-```{R, include = FALSE}
-source("R/network-graph.R")
-```
+- Make up some (re)insurance companies and treaties:
 
 ```{R, message = FALSE, warning = FALSE}
-sample_n(companies, 5)
-sample_n(treaties, 5)
+source("R/network-graph.R")
+sample_n(companies, 4)
+sample_n(treaties, 4)
 ```
 
 ## Insurer-reinsurer relationships
@@ -173,26 +175,16 @@ head(Insurance2, 10)
 ```{R, message = FALSE, warning = FALSE, echo = FALSE}
 library(DT)
 relativities %>% 
-  datatable %>% 
-  formatRound(2:(nFolds + 1), digits = 2)
+datatable %>% 
+formatRound(2:(nFolds + 1), digits = 2)
 ```
 
 ## Predictive modeling
 
-```{R, echo = FALSE}
-relativityPlots[1]
-```
-
-## Predictive modeling
+- Here's an example where a picture more appropriate than numbers
 
 ```{R, echo = FALSE}
-relativityPlots[2]
-```
-
-## Predictive modeling
-
-```{R, echo = FALSE}
-relativityPlots[3]
+relativityPlots[[1]]
 ```
 
 ## Predictive modeling
@@ -202,9 +194,24 @@ relativityPlots[3]
 ```{R, echo = FALSE, message = FALSE}
 library(rcdimple)
 liftChartData %>%
-  dimple(x = c("bin", "variable"), y = "value", type = "bar", groups = "variable") %>%
-  xAxis(type = "addCategoryAxis", title = "Predicted quantile") %>%
-  yAxis(type = "addMeasureAxis", title = "Value") %>%
-  add_legend() %>%
-  add_title("Out of sample lift chart")
+dimple(x = c("bin", "variable"), y = "value", type = "bar", groups = "variable") %>%
+xAxis(type = "addCategoryAxis", title = "Predicted quantile") %>%
+yAxis(type = "addMeasureAxis", title = "Value") %>%
+add_legend() %>%
+add_title("Out of sample lift chart")
 ```
+
+## Predictive modeling
+
+BTW, in a real life *predictive modeling* exercise, consider
+
+- having a hold-out validation set and looking at quantitative error metrics
+
+- using other techniques in addition to or instead of GLMs, unless you're constrained by regulation
+
+- *not* using stepwise regression and using regularization if you're stuck doing GLMs
+
+- *not* looking at p-values and frequentist CIs
+
+
+# That's it!

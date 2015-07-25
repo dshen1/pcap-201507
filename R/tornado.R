@@ -4,6 +4,8 @@ library(tidyr)
 library(readr)
 library(xts)
 library(dygraphs)
+library(rgdal)
+library(leaflet)
 
 # list.files("download/")
 # read_csv("download/stormdata_2010.csv") %>%
@@ -11,7 +13,7 @@ library(dygraphs)
 
 colsToExtract <- c("BEGIN_YEARMONTH", "BEGIN_DAY", "EVENT_TYPE", "STATE",
                    "DEATHS_DIRECT", "DEATHS_INDIRECT", "BEGIN_LAT", "BEGIN_LON",
-                   "CZ_NAME")
+                   "CZ_NAME", "STATE_FIPS", "CZ_FIPS")
 stormData <- list.files("download/") %>%
   grep("^storm", ., value = TRUE) %>%
   lapply((function(x) read_csv(paste0("download/", x)) %>%
@@ -21,9 +23,11 @@ stormData <- list.files("download/") %>%
                        type = ~ EVENT_TYPE,
                        state = ~ STATE,
                        deaths = ~ DEATHS_DIRECT + DEATHS_INDIRECT,
-                       lat = ~ as.integer(BEGIN_LAT),
-                       long = ~ as.integer(BEGIN_LON),
-                       county = ~ paste(CZ_NAME, STATE, sep = ", ")))
+                       lat = ~ BEGIN_LAT,
+                       long = ~ BEGIN_LON,
+                       county = ~ paste(CZ_NAME, STATE, sep = ", "),
+                       stateFIPS = ~ STATE_FIPS,
+                       countyFIPS = ~ CZ_FIPS))
          ) %>%
   bind_rows
 
@@ -47,16 +51,39 @@ outbreakSummary <- stormData %>%
   head
 
 
-library(leaflet)
-tornadoMapData <- stormData %>%
-  filter(type == "Tornado", deaths > 0,
-         date >= ymd("2011-4-25"), date <= ymd("2011-4-28")) %>%
-  group_by(lat, long) %>%
-  summarize(deaths = sum(deaths),
-            county = first(county))
-deathsPopup <- paste0("<strong>Deaths: </strong>", 
-                      tornadoMapData$deaths, "<br />",
-                      tornadoMapData$county)
+tornadoCountySummary <- stormData %>%
+  filter(type == "Tornado") %>%
+  group_by(stateFIPS, countyFIPS) %>%
+  summarize(count = n())
+
+counties <- readOGR("cb_2014_us_county_500k/cb_2014_us_county_500k.shp",
+                    "cb_2014_us_county_500k", verbose = FALSE)
+counties@data <- counties@data %>%
+  transmute(stateFIPS = levels(STATEFP)[STATEFP] %>% as.integer,
+            countyFIPS = levels(COUNTYFP)[COUNTYFP] %>% as.integer,
+            name = levels(NAME)[NAME]) %>%
+  left_join(tornadoCountySummary, by = c("stateFIPS", "countyFIPS"))
+counties <- counties[!is.na(counties$count),]
+
+pal <- colorNumeric(
+  palette = "Reds",
+  domain = counties$count
+)
+
+countyPopup <- paste0("<strong>County: </strong>",
+                      counties@data$name, "<br />",
+                      "<strong>Tornados in period: </strong>",
+                      counties@data$count)
+
+outbreakOccurences <- stormData %>%
+  filter(type == "Tornado", deaths > 0)
+deathPopup <- paste0("<strong>Deaths: </strong>", 
+                      outbreakOccurences$deaths, "<br />",
+                     "<strong>Date: </strong>",
+                     outbreakOccurences$date, "<br />",
+                     "<strong>County: </strong>",
+                     outbreakOccurences$county)
+
 # tornadoMapData %>%
 #   leaflet() %>%
 #   addTiles() %>%
